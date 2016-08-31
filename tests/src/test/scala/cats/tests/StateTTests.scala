@@ -29,6 +29,46 @@ class StateTTests extends CatsSuite {
     }
   }
 
+  test("State.inspect and StateT.inspect are consistent") {
+    forAll { (s: String, f: String => Int) =>
+      val state: State[String, Int] = State.inspect(f)
+      val stateT: State[String, Int] = StateT.inspect(f)
+      state.run(s) should === (stateT.run(s))
+    }
+  }
+
+  test("State.inspect and StateT.inspectF are consistent") {
+    forAll { (s: String, f: String => Int) =>
+      val state: State[String, Int] = State.inspect(f)
+      val stateT: State[String, Int] = StateT.inspectF(f.andThen(Eval.now))
+      state.run(s) should === (stateT.run(s))
+    }
+  }
+
+  test("State.modify and StateT.modify are consistent") {
+    forAll { (s: String, f: String => String) =>
+      val state: State[String, Unit] = State.modify(f)
+      val stateT: State[String, Unit] = StateT.modify(f)
+      state.run(s) should === (stateT.run(s))
+    }
+  }
+
+  test("State.modify and StateT.modifyF are consistent") {
+    forAll { (s: String, f: String => String) =>
+      val state: State[String, Unit] = State.modify(f)
+      val stateT: State[String, Unit] = StateT.modifyF(f.andThen(Eval.now))
+      state.run(s) should === (stateT.run(s))
+    }
+  }
+
+  test("State.pure and StateT.lift are consistent") {
+    forAll { (s: String, i: Int) =>
+      val state: State[String, Int] = State.pure(i)
+      val stateT: State[String, Int] = StateT.lift(Eval.now(i))
+      state.run(s) should === (stateT.run(s))
+    }
+  }
+
   test("Cartesian syntax is usable on State") {
     val x = add1 *> add1
     x.runS(0).value should === (2)
@@ -132,11 +172,11 @@ class StateTTests extends CatsSuite {
   }
 
   {
-    // F has a MonadRec
-    implicit val F = ListWrapper.monadRec
+    // F has a Monad
+    implicit val F = ListWrapper.monad
 
-    checkAll("StateT[ListWrapper, Int, Int]", MonadRecTests[StateT[ListWrapper, Int, ?]].monadRec[Int, Int, Int])
-    checkAll("MonadRec[StateT[ListWrapper, Int, ?]]", SerializableTests.serializable(MonadRec[StateT[ListWrapper, Int, ?]]))
+    checkAll("StateT[ListWrapper, Int, Int]", MonadTests[StateT[ListWrapper, Int, ?]].monad[Int, Int, Int])
+    checkAll("Monad[StateT[ListWrapper, Int, ?]]", SerializableTests.serializable(Monad[StateT[ListWrapper, Int, ?]]))
 
     Monad[StateT[ListWrapper, Int, ?]]
     FlatMap[StateT[ListWrapper, Int, ?]]
@@ -177,8 +217,8 @@ class StateTTests extends CatsSuite {
     checkAll("State[Long, ?]", MonadStateTests[State[Long, ?], Long].monadState[Int, Int, Int])
     checkAll("MonadState[State[Long, ?], Long]", SerializableTests.serializable(MonadState[State[Long, ?], Long]))
 
-    checkAll("State[Long, ?]", MonadRecTests[State[Long, ?]].monadRec[Int, Int, Int])
-    checkAll("MonadRec[State[Long, ?]]", SerializableTests.serializable(MonadRec[State[Long, ?]]))
+    checkAll("State[Long, ?]", MonadTests[State[Long, ?]].monad[Int, Int, Int])
+    checkAll("Monad[State[Long, ?]]", SerializableTests.serializable(Monad[State[Long, ?]]))
   }
 }
 

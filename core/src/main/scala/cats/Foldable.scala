@@ -58,6 +58,90 @@ import simulacrum.typeclass
     }
 
   /**
+   * Reduce the elements of this structure down to a single value by applying
+   * the provided aggregation function in a left-associative manner.
+   *
+   * @return `None` if the structure is empty, otherwise the result of combining
+   * the cumulative left-associative result of the `f` operation over all of the
+   * elements.
+   *
+   * @see [[reduceRightOption]] for a right-associative alternative.
+   *
+   * @see [[Reducible#reduceLeft]] for a version that doesn't need to return an
+   * `Option` for structures that are guaranteed to be non-empty.
+   *
+   * Example:
+   * {{{
+   * scala> import cats.implicits._
+   * scala> val l = List(6, 3, 2)
+   * This is equivalent to (6 - 3) - 2
+   * scala> Foldable[List].reduceLeftOption(l)(_ - _)
+   * res0: Option[Int] = Some(1)
+   *
+   * scala> Foldable[List].reduceLeftOption(List.empty[Int])(_ - _)
+   * res1: Option[Int] = None
+   * }}}
+   */
+  def reduceLeftOption[A](fa: F[A])(f: (A, A) => A): Option[A] =
+    reduceLeftToOption(fa)(identity)(f)
+
+  /**
+   * Reduce the elements of this structure down to a single value by applying
+   * the provided aggregation function in a right-associative manner.
+   *
+   * @return `None` if the structure is empty, otherwise the result of combining
+   * the cumulative right-associative result of the `f` operation over the
+   * `A` elements.
+   *
+   * @see [[reduceLeftOption]] for a left-associative alternative
+   *
+   * @see [[Reducible#reduceRight]] for a version that doesn't need to return an
+   * `Option` for structures that are guaranteed to be non-empty.
+   *
+   * Example:
+   * {{{
+   * scala> import cats.implicits._
+   * scala> val l = List(6, 3, 2)
+   * This is eqivalent to 6 - (3 - 2)
+   * scala> Foldable[List].reduceRightOption(l)((current, rest) => rest.map(current - _)).value
+   * res0: Option[Int] = Some(5)
+   *
+   * scala> Foldable[List].reduceRightOption(List.empty[Int])((current, rest) => rest.map(current - _)).value
+   * res1: Option[Int] = None
+   * }}}
+   */
+  def reduceRightOption[A](fa: F[A])(f: (A, Eval[A]) => Eval[A]): Eval[Option[A]] =
+    reduceRightToOption(fa)(identity)(f)
+
+  /**
+   * Find the minimum `A` item in this structure according to the `Order[A]`.
+   *
+   * @return `None` if the structure is empty, otherwise the minimum element
+   * wrapped in a `Some`.
+   *
+   * @see [[Reducible#minimum]] for a version that doesn't need to return an
+   * `Option` for structures that are guaranteed to be non-empty.
+   *
+   * @see [[maximumOption]] for maximum instead of minimum.
+   */
+  def minimumOption[A](fa: F[A])(implicit A: Order[A]): Option[A] =
+    reduceLeftOption(fa)(A.min)
+
+  /**
+   * Find the maximum `A` item in this structure according to the `Order[A]`.
+   *
+   * @return `None` if the structure is empty, otherwise the maximum element
+   * wrapped in a `Some`.
+   *
+   * @see [[Reducible#maximum]] for a version that doesn't need to return an
+   * `Option` for structures that are guaranteed to be non-empty.
+   *
+   * @see [[minimumOption]] for minimum instead of maximum.
+   */
+  def maximumOption[A](fa: F[A])(implicit A: Order[A]): Option[A] =
+    reduceLeftOption(fa)(A.max)
+
+  /**
    * The size of this Foldable.
    *
    * This is overriden in structures that have more efficient size implementations
@@ -102,9 +186,8 @@ import simulacrum.typeclass
    * For example:
    *
    * {{{
-   * scala> import cats.data.Xor
    * scala> import cats.implicits._
-   * scala> def parseInt(s: String): Option[Int] = Xor.catchOnly[NumberFormatException](s.toInt).toOption
+   * scala> def parseInt(s: String): Option[Int] = Either.catchOnly[NumberFormatException](s.toInt).toOption
    * scala> val F = Foldable[List]
    * scala> F.traverse_(List("333", "444"))(parseInt)
    * res0: Option[Unit] = Some(())
@@ -124,19 +207,18 @@ import simulacrum.typeclass
   /**
    * Behaves like traverse_, but uses [[Unapply]] to find the
    * [[Applicative]] instance for `G` - used when `G` is a
-   * type constructor with two or more parameters such as [[cats.data.Xor]]
+   * type constructor with two or more parameters such as `scala.util.Either`
    *
    * {{{
-   * scala> import cats.data.Xor
    * scala> import cats.implicits._
-   * scala> def parseInt(s: String): Xor[String, Int] =
-   *      |   try { Xor.Right(s.toInt) }
-   *      |   catch { case _: NumberFormatException => Xor.Left("boo") }
+   * scala> def parseInt(s: String): Either[String, Int] =
+   *      |   try { Right(s.toInt) }
+   *      |   catch { case _: NumberFormatException => Left("boo") }
    * scala> val F = Foldable[List]
    * scala> F.traverseU_(List("333", "444"))(parseInt)
-   * res0: Xor[String, Unit] = Right(())
+   * res0: Either[String, Unit] = Right(())
    * scala> F.traverseU_(List("333", "zzz"))(parseInt)
-   * res1: Xor[String, Unit] = Left(boo)
+   * res1: Either[String, Unit] = Left(boo)
    * }}}
    *
    * Note that using `traverse_` instead of `traverseU_` would not compile without
@@ -169,16 +251,15 @@ import simulacrum.typeclass
   /**
    * Behaves like sequence_, but uses [[Unapply]] to find the
    * [[Applicative]] instance for `G` - used when `G` is a
-   * type constructor with two or more parameters such as [[cats.data.Xor]]
+   * type constructor with two or more parameters such as `scala.util.Either`
    *
    * {{{
-   * scala> import cats.data.Xor
    * scala> import cats.implicits._
    * scala> val F = Foldable[List]
-   * scala> F.sequenceU_(List(Xor.right[String, Int](333), Xor.Right(444)))
-   * res0: Xor[String, Unit] = Right(())
-   * scala> F.sequenceU_(List(Xor.right[String, Int](333), Xor.Left("boo")))
-   * res1: Xor[String, Unit] = Left(boo)
+   * scala> F.sequenceU_(List(Either.right[String, Int](333), Right(444)))
+   * res0: Either[String, Unit] = Right(())
+   * scala> F.sequenceU_(List(Either.right[String, Int](333), Left("boo")))
+   * res1: Either[String, Unit] = Left(boo)
    * }}}
    *
    * Note that using `sequence_` instead of `sequenceU_` would not compile without

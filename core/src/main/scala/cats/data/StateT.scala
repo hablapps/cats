@@ -1,6 +1,8 @@
 package cats
 package data
 
+import cats.syntax.either._
+
 /**
  * `StateT[F, S, A]` is similar to `Kleisli[F, S, A]` in that it takes an `S`
  * argument and produces an `A` value wrapped in `F`. However, it also produces
@@ -133,6 +135,21 @@ object StateT extends StateTInstances {
 
   def pure[F[_], S, A](a: A)(implicit F: Applicative[F]): StateT[F, S, A] =
     StateT(s => F.pure((s, a)))
+
+  def lift[F[_], S, A](fa: F[A])(implicit F: Applicative[F]): StateT[F, S, A] =
+    StateT(s => F.map(fa)(a => (s, a)))
+
+  def inspect[F[_], S, A](f: S => A)(implicit F: Applicative[F]): StateT[F, S, A] =
+    StateT(s => F.pure((s, f(s))))
+
+  def inspectF[F[_], S, A](f: S => F[A])(implicit F: Applicative[F]): StateT[F, S, A] =
+    StateT(s => F.map(f(s))(a => (s, a)))
+
+  def modify[F[_], S](f: S => S)(implicit F: Applicative[F]): StateT[F, S, Unit] =
+    StateT(s => F.pure((f(s), ())))
+
+  def modifyF[F[_], S](f: S => F[S])(implicit F: Applicative[F]): StateT[F, S, Unit] =
+    StateT(s => F.map(f(s))(s => (s, ())))
 }
 
 private[data] sealed trait StateTInstances extends StateTInstances1 {
@@ -144,18 +161,15 @@ private[data] sealed trait StateTInstances extends StateTInstances1 {
 }
 
 private[data] sealed trait StateTInstances1 extends StateTInstances2 {
-  implicit def catsDataMonadRecForStateT[F[_], S](implicit F0: MonadRec[F]): MonadRec[StateT[F, S, ?]] =
-    new StateTMonadRec[F, S] { implicit def F = F0 }
-}
-
-private[data] sealed trait StateTInstances2 extends StateTInstances3 {
   implicit def catsDataMonadCombineForStateT[F[_], S](implicit F0: MonadCombine[F]): MonadCombine[StateT[F, S, ?]] =
     new StateTMonadCombine[F, S] { implicit def F = F0 }
 }
 
-private[data] sealed trait StateTInstances3 {
+private[data] sealed trait StateTInstances2 {
   implicit def catsDataMonadForStateT[F[_], S](implicit F0: Monad[F]): Monad[StateT[F, S, ?]] =
     new StateTMonad[F, S] { implicit def F = F0 }
+
+  implicit def catsDataRecursiveTailRecMForStateT[F[_]: RecursiveTailRecM, S]: RecursiveTailRecM[StateT[F, S, ?]] = RecursiveTailRecM.create[StateT[F, S, ?]]
 
   implicit def catsDataSemigroupKForStateT[F[_], S](implicit F0: Monad[F], G0: SemigroupK[F]): SemigroupK[StateT[F, S, ?]] =
     new StateTSemigroupK[F, S] { implicit def F = F0; implicit def G = G0 }
@@ -204,21 +218,17 @@ private[data] sealed trait StateTMonad[F[_], S] extends Monad[StateT[F, S, ?]] {
     fa.flatMap(f)
 
   override def map[A, B](fa: StateT[F, S, A])(f: A => B): StateT[F, S, B] = fa.map(f)
+
+  def tailRecM[A, B](a: A)(f: A => StateT[F, S, Either[A, B]]): StateT[F, S, B] =
+    StateT[F, S, B](s => F.tailRecM[(S, A), (S, B)]((s, a)) {
+      case (s, a) => F.map(f(a).run(s)) { case (s, ab) => ab.bimap((s, _), (s, _)) }
+    })
 }
 
 private[data] sealed trait StateTMonadState[F[_], S] extends MonadState[StateT[F, S, ?], S] with StateTMonad[F, S] {
   lazy val get: StateT[F, S, S] = StateT(s => F.pure((s, s)))
 
   def set(s: S): StateT[F, S, Unit] = StateT(_ => F.pure((s, ())))
-}
-
-private[data] sealed trait StateTMonadRec[F[_], S] extends MonadRec[StateT[F, S, ?]] with StateTMonad[F, S] {
-  override implicit def F: MonadRec[F]
-
-  def tailRecM[A, B](a: A)(f: A => StateT[F, S, A Xor B]): StateT[F, S, B] =
-    StateT[F, S, B](s => F.tailRecM[(S, A), (S, B)]((s, a)) {
-      case (s, a) => F.map(f(a).run(s)) { case (s, ab) => ab.bimap((s, _), (s, _)) }
-    })
 }
 
 private[data] sealed trait StateTTransLift[S] extends TransLift[StateT[?[_], S, ?]] {

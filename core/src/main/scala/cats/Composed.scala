@@ -63,12 +63,28 @@ private[cats] trait ComposedFoldable[F[_], G[_]] extends Foldable[λ[α => F[G[�
     F.foldRight(fga, lb)((ga, lb) => G.foldRight(ga, lb)(f))
 }
 
-private[cats] trait ComposedTraverse[F[_], G[_]] extends Traverse[λ[α => F[G[α]]]] with ComposedFoldable[F, G] with ComposedFunctor[F, G] { outer =>
+private[cats] trait ComposedTraverse[F[_], G[_]] extends Traverse[λ[α => F[G[α]]]] with ComposedFoldable[F, G] with ComposedFunctor[F, G] {
   def F: Traverse[F]
   def G: Traverse[G]
 
   override def traverse[H[_]: Applicative, A, B](fga: F[G[A]])(f: A => H[B]): H[F[G[B]]] =
     F.traverse(fga)(ga => G.traverse(ga)(f))
+}
+
+private[cats] trait ComposedTraverseFilter[F[_], G[_]] extends TraverseFilter[λ[α => F[G[α]]]] with ComposedTraverse[F, G] {
+  def F: Traverse[F]
+  def G: TraverseFilter[G]
+
+  override def traverseFilter[H[_]: Applicative, A, B](fga: F[G[A]])(f: A => H[Option[B]]): H[F[G[B]]] =
+    F.traverse[H, G[A], G[B]](fga)(ga => G.traverseFilter(ga)(f))
+}
+
+private[cats] trait ComposedFunctorFilter[F[_], G[_]] extends FunctorFilter[λ[α => F[G[α]]]] with ComposedFunctor[F, G] {
+  def F: Functor[F]
+  def G: FunctorFilter[G]
+
+  override def mapFilter[A, B](fga: F[G[A]])(f: A => Option[B]): F[G[B]] =
+    F.map(fga)(G.mapFilter(_)(f))
 }
 
 private[cats] trait ComposedReducible[F[_], G[_]] extends Reducible[λ[α => F[G[α]]]] with ComposedFoldable[F, G] { outer =>
@@ -104,6 +120,16 @@ private[cats] trait ComposedContravariantCovariant[F[_], G[_]] extends Contravar
 
   override def contramap[A, B](fga: F[G[A]])(f: B => A): F[G[B]] =
     F.contramap(fga)(gb => G.map(gb)(f))
+}
+
+private[cats] trait ComposedCartesian[F[_], G[_]] extends ContravariantCartesian[λ[α => F[G[α]]]] with ComposedContravariantCovariant[F, G] { outer =>
+  def F: ContravariantCartesian[F]
+  def G: Functor[G]
+
+  def product[A, B](fa: F[G[A]], fb: F[G[B]]): F[G[(A, B)]] =
+    F.contramap(F.product(fa, fb)) { g: G[(A, B)] =>
+      (G.map(g)(_._1), G.map(g)(_._2))
+    }
 }
 
 private[cats] trait ComposedCovariantContravariant[F[_], G[_]] extends Contravariant[λ[α => F[G[α]]]] { outer =>

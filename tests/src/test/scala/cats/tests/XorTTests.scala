@@ -46,7 +46,7 @@ class XorTTests extends CatsSuite {
   {
     //if a Monad is defined
     implicit val F = ListWrapper.monad
-    implicit val eq0 = XorT.catsDataEqForXorT[ListWrapper, String, String Xor Int]
+    implicit val eq0 = XorT.catsDataEqForXorT[ListWrapper, String, Xor[String, Int]]
     implicit val eq1 = XorT.catsDataEqForXorT[XorT[ListWrapper, String, ?], String, Int](eq0)
 
     Functor[XorT[ListWrapper, String, ?]]
@@ -58,15 +58,15 @@ class XorTTests extends CatsSuite {
   }
 
   {
-    //if a MonadRec is defined
-    implicit val F = ListWrapper.monadRec
+    //if a Monad is defined
+    implicit val F = ListWrapper.monad
 
     Functor[XorT[ListWrapper, String, ?]]
     Applicative[XorT[ListWrapper, String, ?]]
     Monad[XorT[ListWrapper, String, ?]]
 
-    checkAll("XorT[ListWrapper, String, Int]", MonadRecTests[XorT[ListWrapper, String, ?]].monadRec[Int, Int, Int])
-    checkAll("MonadRec[XorT[ListWrapper, String, ?]]", SerializableTests.serializable(MonadRec[XorT[ListWrapper, String, ?]]))
+    checkAll("XorT[ListWrapper, String, Int]", MonadTests[XorT[ListWrapper, String, ?]].monad[Int, Int, Int])
+    checkAll("Monad[XorT[ListWrapper, String, ?]]", SerializableTests.serializable(Monad[XorT[ListWrapper, String, ?]]))
   }
 
   {
@@ -110,6 +110,12 @@ class XorTTests extends CatsSuite {
   test("toValidated") {
     forAll { (xort: XorT[List, String, Int]) =>
       xort.toValidated.map(_.toXor) should === (xort.value)
+    }
+  }
+
+  test("toValidatedNel") {
+    forAll { (xort: XorT[List, String, Int]) =>
+      xort.toValidatedNel.map(_.toXor.leftMap(_.head)) should === (xort.value)
     }
   }
 
@@ -194,6 +200,15 @@ class XorTTests extends CatsSuite {
   test("transform consistent with value.map") {
     forAll { (xort: XorT[List, String, Int], f: String Xor Int => Long Xor Double) =>
       xort.transform(f) should === (XorT(xort.value.map(f)))
+    }
+  }
+
+  test("semiflatMap consistent with value.flatMap+f+pure") {
+    forAll { (xort: XorT[List, String, Int], f: Int => List[String]) =>
+      xort.semiflatMap(f) should === (XorT(xort.value.flatMap {
+        case l @ Xor.Left(_) => List(l)
+        case Xor.Right(b) => f(b).map(Xor.right)
+      }))
     }
   }
 

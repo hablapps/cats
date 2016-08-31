@@ -2,12 +2,11 @@ package cats
 package instances
 
 import scala.annotation.tailrec
-import cats.data.Xor
 
 trait OptionInstances extends cats.kernel.instances.OptionInstances {
 
-  implicit val catsStdInstancesForOption: Traverse[Option] with MonadError[Option, Unit] with MonadCombine[Option] with MonadRec[Option] with CoflatMap[Option] with Alternative[Option] =
-    new Traverse[Option] with MonadError[Option, Unit]  with MonadCombine[Option] with MonadRec[Option] with CoflatMap[Option] with Alternative[Option] {
+  implicit val catsStdInstancesForOption: TraverseFilter[Option] with MonadError[Option, Unit] with MonadCombine[Option] with Monad[Option] with CoflatMap[Option] with Alternative[Option] with RecursiveTailRecM[Option] =
+    new TraverseFilter[Option] with MonadError[Option, Unit]  with MonadCombine[Option] with Monad[Option] with CoflatMap[Option] with Alternative[Option] with RecursiveTailRecM[Option] {
 
       def empty[A]: Option[A] = None
 
@@ -22,11 +21,11 @@ trait OptionInstances extends cats.kernel.instances.OptionInstances {
         fa.flatMap(f)
 
       @tailrec
-      def tailRecM[A, B](a: A)(f: A => Option[A Xor B]): Option[B] =
+      def tailRecM[A, B](a: A)(f: A => Option[Either[A, B]]): Option[B] =
         f(a) match {
           case None => None
-          case Some(Xor.Left(a1)) => tailRecM(a1)(f)
-          case Some(Xor.Right(b)) => Some(b)
+          case Some(Left(a1)) => tailRecM(a1)(f)
+          case Some(Right(b)) => Some(b)
         }
 
       override def map2[A, B, Z](fa: Option[A], fb: Option[B])(f: (A, B) => Z): Option[Z] =
@@ -53,15 +52,24 @@ trait OptionInstances extends cats.kernel.instances.OptionInstances {
           case Some(a) => f(a, lb)
         }
 
-      def traverse[G[_]: Applicative, A, B](fa: Option[A])(f: A => G[B]): G[Option[B]] =
+      def raiseError[A](e: Unit): Option[A] = None
+
+      def handleErrorWith[A](fa: Option[A])(f: (Unit) => Option[A]): Option[A] = fa orElse f(())
+
+      def traverseFilter[G[_], A, B](fa: Option[A])(f: A => G[Option[B]])(implicit G: Applicative[G]): G[Option[B]] =
+        fa match {
+          case None => G.pure(None)
+          case Some(a) => f(a)
+        }
+
+      override def traverse[G[_]: Applicative, A, B](fa: Option[A])(f: A => G[B]): G[Option[B]] =
         fa match {
           case None => Applicative[G].pure(None)
           case Some(a) => Applicative[G].map(f(a))(Some(_))
         }
 
-      def raiseError[A](e: Unit): Option[A] = None
-
-      def handleErrorWith[A](fa: Option[A])(f: (Unit) => Option[A]): Option[A] = fa orElse f(())
+      override def filter[A](fa: Option[A])(p: A => Boolean): Option[A] =
+        fa.filter(p)
 
       override def exists[A](fa: Option[A])(p: A => Boolean): Boolean =
         fa.exists(p)

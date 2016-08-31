@@ -2,30 +2,34 @@ package cats
 package instances
 
 import cats.data.Xor
-
 import scala.util.control.NonFatal
 import scala.concurrent.{ExecutionContext, Future}
 
 trait FutureInstances extends FutureInstances1 {
 
-  implicit def catsStdInstancesForFuture(implicit ec: ExecutionContext): MonadError[Future, Throwable] with CoflatMap[Future] =
-    new FutureCoflatMap with MonadError[Future, Throwable]{
+  implicit def catsStdInstancesForFuture(implicit ec: ExecutionContext): MonadError[Future, Throwable] with CoflatMap[Future] with Monad[Future] with RecursiveTailRecM[Future] =
+    new FutureCoflatMap with MonadError[Future, Throwable] with Monad[Future] with RecursiveTailRecM[Future] {
       def pure[A](x: A): Future[A] = Future.successful(x)
 
-      override def pureEval[A](x: Eval[A]): Future[A] = x match {
-        case Now(x) => Future.successful(x)
-        case _ => Future(x.value)
-      }
-
       def flatMap[A, B](fa: Future[A])(f: A => Future[B]): Future[B] = fa.flatMap(f)
+
+      /**
+       * Note that while this implementation will not compile with `@tailrec`,
+       * it is in fact stack-safe.
+       */
+      final def tailRecM[B, C](b: B)(f: B => Future[Either[B, C]]): Future[C] =
+        f(b).flatMap {
+          case Left(b1) => tailRecM(b1)(f)
+          case Right(c) => Future.successful(c)
+        }
 
       def handleErrorWith[A](fea: Future[A])(f: Throwable => Future[A]): Future[A] = fea.recoverWith { case t => f(t) }
 
       def raiseError[A](e: Throwable): Future[A] = Future.failed(e)
       override def handleError[A](fea: Future[A])(f: Throwable => A): Future[A] = fea.recover { case t => f(t) }
 
-      override def attempt[A](fa: Future[A]): Future[Throwable Xor A] =
-        (fa map Xor.right) recover { case NonFatal(t) => Xor.left(t) }
+      override def attempt[A](fa: Future[A]): Future[Xor[Throwable, A]] =
+        (fa.map(a => Xor.Right(a))) recover { case NonFatal(t) => Xor.Left(t) }
 
       override def recover[A](fa: Future[A])(pf: PartialFunction[Throwable, A]): Future[A] = fa.recover(pf)
 

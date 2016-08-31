@@ -7,7 +7,7 @@ import cats.laws.discipline._
 import cats.laws.discipline.arbitrary._
 
 class OptionTTests extends CatsSuite {
-  implicit val iso = CartesianTests.Isomorphisms.invariant[OptionT[ListWrapper, ?]](OptionT.catsDataFunctorForOptionT(ListWrapper.functor))
+  implicit val iso = CartesianTests.Isomorphisms.invariant[OptionT[ListWrapper, ?]](OptionT.catsDataFunctorFilterForOptionT(ListWrapper.functor))
 
   {
     implicit val F = ListWrapper.eqv[Option[Int]]
@@ -39,8 +39,8 @@ class OptionTTests extends CatsSuite {
     // F has a Functor
     implicit val F = ListWrapper.functor
 
-    checkAll("OptionT[ListWrapper, Int]", FunctorTests[OptionT[ListWrapper, ?]].functor[Int, Int, Int])
-    checkAll("Functor[OptionT[ListWrapper, ?]]", SerializableTests.serializable(Functor[OptionT[ListWrapper, ?]]))
+    checkAll("OptionT[ListWrapper, Int]", FunctorFilterTests[OptionT[ListWrapper, ?]].functorFilter[Int, Int, Int])
+    checkAll("FunctorFilter[OptionT[ListWrapper, ?]]", SerializableTests.serializable(FunctorFilter[OptionT[ListWrapper, ?]]))
   }
 
   {
@@ -67,22 +67,8 @@ class OptionTTests extends CatsSuite {
   }
 
   {
-    // F has a MonadRec
-    implicit val F = ListWrapper.monadRec
-
-    checkAll("OptionT[ListWrapper, Int]", MonadRecTests[OptionT[ListWrapper, ?]].monadRec[Int, Int, Int])
-    checkAll("MonadRec[OptionT[ListWrapper, ?]]", SerializableTests.serializable(MonadRec[OptionT[ListWrapper, ?]]))
-
-    Monad[OptionT[ListWrapper, ?]]
-    FlatMap[OptionT[ListWrapper, ?]]
-    Applicative[OptionT[ListWrapper, ?]]
-    Apply[OptionT[ListWrapper, ?]]
-    Functor[OptionT[ListWrapper, ?]]
-  }
-
-  {
     // F has a MonadError
-    type SXor[A] = String Xor A
+    type SXor[A] = Xor[String, A]
 
     implicit val monadError = OptionT.catsDataMonadErrorForOptionT[SXor, String]
 
@@ -100,8 +86,8 @@ class OptionTTests extends CatsSuite {
 
     implicit val iso = CartesianTests.Isomorphisms.invariant[OptionT[SXor, ?]]
 
-    checkAll("OptionT[String Xor ?, Int]", MonadErrorTests[OptionT[SXor, ?], String].monadError[Int, Int, Int])
-    checkAll("MonadError[OptionT[String Xor ?, ?]]", SerializableTests.serializable(monadError))
+    checkAll("OptionT[Either[String, ?], Int]", MonadErrorTests[OptionT[SXor, ?], String].monadError[Int, Int, Int])
+    checkAll("MonadError[OptionT[Either[String, ?], ?]]", SerializableTests.serializable(monadError))
 
     Monad[OptionT[SXor, ?]]
     FlatMap[OptionT[SXor, ?]]
@@ -122,11 +108,12 @@ class OptionTTests extends CatsSuite {
     // F has a Traverse
     implicit val F = ListWrapper.traverse
 
-    checkAll("OptionT[ListWrapper, Int] with Option", TraverseTests[OptionT[ListWrapper, ?]].traverse[Int, Int, Int, Int, Option, Option])
-    checkAll("Traverse[OptionT[ListWrapper, ?]]", SerializableTests.serializable(Traverse[OptionT[ListWrapper, ?]]))
+    checkAll("OptionT[ListWrapper, Int] with Option", TraverseFilterTests[OptionT[ListWrapper, ?]].traverseFilter[Int, Int, Int, Int, Option, Option])
+    checkAll("TraverseFilter[OptionT[ListWrapper, ?]]", SerializableTests.serializable(TraverseFilter[OptionT[ListWrapper, ?]]))
 
     Foldable[OptionT[ListWrapper, ?]]
     Functor[OptionT[ListWrapper, ?]]
+    Traverse[OptionT[ListWrapper, ?]]
   }
 
   {
@@ -269,8 +256,8 @@ class OptionTTests extends CatsSuite {
   }
 
   test("show") {
-    val xor: String Xor Option[Int] = Xor.right(Some(1))
-    OptionT[Xor[String, ?], Int](xor).show should === ("Xor.Right(Some(1))")
+    val either: Either[String, Option[Int]] = Either.right(Some(1))
+    OptionT[Either[String, ?], Int](either).show should === ("Right(Some(1))")
   }
 
   test("none") {
@@ -286,6 +273,15 @@ class OptionTTests extends CatsSuite {
   test("transform consistent with value.map") {
     forAll { (o: OptionT[List, Int], f: Option[Int] => Option[String]) =>
       o.transform(f) should === (OptionT(o.value.map(f)))
+    }
+  }
+
+  test("semiflatMap consistent with value.flatMap+f+pure") {
+    forAll { (o: OptionT[List, Int], f: Int => List[String]) =>
+      o.semiflatMap(f) should === (OptionT(o.value.flatMap {
+        case None => List(None)
+        case Some(a) => f(a).map(Some(_))
+      }))
     }
   }
 
@@ -312,7 +308,6 @@ class OptionTTests extends CatsSuite {
 
     Functor[OptionT[List, ?]]
     Monad[OptionT[List, ?]]
-    MonadRec[OptionT[List, ?]]
 
     import scala.util.Try
     Functor[OptionT[Try, ?]]

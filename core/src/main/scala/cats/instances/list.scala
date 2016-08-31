@@ -6,12 +6,10 @@ import cats.syntax.show._
 import scala.annotation.tailrec
 import scala.collection.mutable.ListBuffer
 
-import cats.data.Xor
-
 trait ListInstances extends cats.kernel.instances.ListInstances {
 
-  implicit val catsStdInstancesForList: Traverse[List] with MonadCombine[List] with MonadRec[List] with CoflatMap[List] =
-    new Traverse[List] with MonadCombine[List] with MonadRec[List] with CoflatMap[List] {
+  implicit val catsStdInstancesForList: TraverseFilter[List] with MonadCombine[List] with Monad[List] with CoflatMap[List] with RecursiveTailRecM[List] =
+    new TraverseFilter[List] with MonadCombine[List] with Monad[List] with CoflatMap[List] with RecursiveTailRecM[List] {
 
       def empty[A]: List[A] = Nil
 
@@ -28,12 +26,12 @@ trait ListInstances extends cats.kernel.instances.ListInstances {
       override def map2[A, B, Z](fa: List[A], fb: List[B])(f: (A, B) => Z): List[Z] =
         fa.flatMap(a => fb.map(b => f(a, b)))
 
-      def tailRecM[A, B](a: A)(f: A => List[A Xor B]): List[B] = {
+      def tailRecM[A, B](a: A)(f: A => List[Either[A, B]]): List[B] = {
         val buf = List.newBuilder[B]
-        @tailrec def go(lists: List[List[A Xor B]]): Unit = lists match {
+        @tailrec def go(lists: List[List[Either[A, B]]]): Unit = lists match {
           case (ab :: abs) :: tail => ab match {
-            case Xor.Right(b) => buf += b; go(abs :: tail)
-            case Xor.Left(a) => go(f(a) :: abs :: tail)
+            case Right(b) => buf += b; go(abs :: tail)
+            case Left(a) => go(f(a) :: abs :: tail)
           }
           case Nil :: tail => go(tail)
           case Nil => ()
@@ -63,7 +61,12 @@ trait ListInstances extends cats.kernel.instances.ListInstances {
         Eval.defer(loop(fa))
       }
 
-      def traverse[G[_], A, B](fa: List[A])(f: A => G[B])(implicit G: Applicative[G]): G[List[B]] =
+      def traverseFilter[G[_], A, B](fa: List[A])(f: A => G[Option[B]])(implicit G: Applicative[G]): G[List[B]] =
+        foldRight[A, G[List[B]]](fa, Always(G.pure(List.empty))){ (a, lglb) =>
+          G.map2Eval(f(a), lglb)((ob, l) => ob.fold(l)(_ :: l))
+        }.value
+
+      override def traverse[G[_], A, B](fa: List[A])(f: A => G[B])(implicit G: Applicative[G]): G[List[B]] =
         foldRight[A, G[List[B]]](fa, Always(G.pure(List.empty))){ (a, lglb) =>
           G.map2Eval(f(a), lglb)(_ :: _)
         }.value
@@ -75,6 +78,8 @@ trait ListInstances extends cats.kernel.instances.ListInstances {
         fa.forall(p)
 
       override def isEmpty[A](fa: List[A]): Boolean = fa.isEmpty
+
+      override def filter[A](fa: List[A])(f: A => Boolean): List[A] = fa.filter(f)
     }
 
   implicit def catsStdShowForList[A:Show]: Show[List[A]] =

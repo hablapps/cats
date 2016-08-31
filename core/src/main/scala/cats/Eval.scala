@@ -1,7 +1,6 @@
 package cats
 
 import scala.annotation.tailrec
-import cats.data.Xor
 import cats.syntax.all._
 
 /**
@@ -295,19 +294,14 @@ object Eval extends EvalInstances {
 
 private[cats] trait EvalInstances extends EvalInstances0 {
 
-  implicit val catsBimonadForEval: Bimonad[Eval] with MonadRec[Eval] =
-    new Bimonad[Eval] with MonadRec[Eval] {
+  implicit val catsBimonadForEval: Bimonad[Eval] with Monad[Eval] with RecursiveTailRecM[Eval] =
+    new Bimonad[Eval] with Monad[Eval] with RecursiveTailRecM[Eval] {
       override def map[A, B](fa: Eval[A])(f: A => B): Eval[B] = fa.map(f)
       def pure[A](a: A): Eval[A] = Now(a)
-      override def pureEval[A](la: Eval[A]): Eval[A] = la
       def flatMap[A, B](fa: Eval[A])(f: A => Eval[B]): Eval[B] = fa.flatMap(f)
       def extract[A](la: Eval[A]): A = la.value
       def coflatMap[A, B](fa: Eval[A])(f: Eval[A] => B): Eval[B] = Later(f(fa))
-      def tailRecM[A, B](a: A)(f: A => Eval[A Xor B]): Eval[B] =
-        f(a).flatMap(_ match {
-          case Xor.Left(a1) => tailRecM(a1)(f) // recursion OK here, since flatMap is lazy
-          case Xor.Right(b) => Eval.now(b)
-        })
+      def tailRecM[A, B](a: A)(f: A => Eval[Either[A, B]]): Eval[B] = defaultTailRecM(a)(f)
     }
 
   implicit def catsOrderForEval[A: Order]: Order[Eval[A]] =

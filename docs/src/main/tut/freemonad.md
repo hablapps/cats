@@ -267,7 +267,7 @@ data-intensive tasks, as well as infinite processes such as streams.
 
 #### 7. Use a pure compiler (optional)
 
-The previous examples used a effectful natural transformation. This
+The previous examples used an effectful natural transformation. This
 works, but you might prefer folding your `Free` in a "purer" way. The
 [State](state.html) data structure can be used to keep track of the program
 state in an immutable map, avoiding mutation altogether.
@@ -445,7 +445,7 @@ In this representation:
 
  - `Pure` builds a `Free` instance from an `A` value (it _reifies_ the
    `pure` function)
- - `Suspend` build a new `Free` by applying `F` to a previous `Free`
+ - `Suspend` builds a new `Free` by applying `F` to a previous `Free`
    (it _reifies_ the `flatMap` function)
 
 So a typical `Free` structure might look like:
@@ -492,6 +492,79 @@ It is exactly the same problem as repeatedly appending to a `List[_]`.
 As the sequence of operations becomes longer, the slower a `flatMap`
 "through" the structure will be. With `FlatMapped`, `Free` becomes a
 right-associated structure not subject to quadratic complexity.
+
+## FreeT
+
+Often times we want to interleave the syntax tree when building a Free monad 
+with some other effect not declared as part of the ADT. 
+FreeT solves this problem by allowing us to mix building steps of the AST 
+with calling action in other base monad.
+
+In the following example a basic console application is shown.
+When the user inputs some text we use a separate `State` monad to track what the user
+typed.
+
+As we can observe in this case `FreeT` offers us a the alternative to delegate denotations to `State`
+monad with stronger equational guarantees than if we were emulating the `State` ops in our own ADT.
+
+```tut:book
+import cats.free._
+import cats._
+import cats.data._
+
+/* A base ADT for the user interaction without state semantics */
+sealed abstract class Teletype[A] extends Product with Serializable
+final case class WriteLine(line : String) extends Teletype[Unit]
+final case class ReadLine(prompt : String) extends Teletype[String]
+
+type TeletypeT[M[_], A] = FreeT[Teletype, M, A]
+type Log = List[String]
+
+/** Smart constructors, notice we are abstracting over any MonadState instance
+ *  to potentially support other types beside State 
+ */
+class TeletypeOps[M[_]](implicit MS : MonadState[M, Log]) {
+  def writeLine(line : String) : TeletypeT[M, Unit] =
+	FreeT.liftF[Teletype, M, Unit](WriteLine(line))
+  def readLine(prompt : String) : TeletypeT[M, String] =
+	FreeT.liftF[Teletype, M, String](ReadLine(prompt))
+  def log(s : String) : TeletypeT[M, Unit] =
+	FreeT.liftT[Teletype, M, Unit](MS.modify(s :: _))
+}
+
+object TeletypeOps {
+  implicit def teleTypeOpsInstance[M[_]](implicit MS : MonadState[M, Log]) : TeletypeOps[M] = new TeletypeOps
+}
+
+type TeletypeState[A] = State[List[String], A]
+
+def program(implicit TO : TeletypeOps[TeletypeState]) : TeletypeT[TeletypeState, Unit] = {
+  for {
+	userSaid <- TO.readLine("what's up?!")
+	_ <- TO.log(s"user said : $userSaid")
+	_ <- TO.writeLine("thanks, see you soon!")
+  } yield () 
+}
+
+def interpreter = new (Teletype ~> TeletypeState) {
+  def apply[A](fa : Teletype[A]) : TeletypeState[A] = {  
+	fa match {
+	  case ReadLine(prompt) =>
+		println(prompt)
+		val userInput = "hanging in here" //scala.io.StdIn.readLine()
+		StateT.pure[Eval, List[String], A](userInput)
+	  case WriteLine(line) =>
+		StateT.pure[Eval, List[String], A](println(line))
+	}
+  }
+}
+
+import TeletypeOps._
+
+val state = program.foldMap(interpreter)
+val initialState = Nil
+val (stored, _) = state.run(initialState).value
+```
 
 ## Future Work (TODO)
 

@@ -1,6 +1,8 @@
 package cats
 
 import cats.data.{Xor, XorT}
+import scala.util.{ Failure, Success, Try }
+import scala.util.control.NonFatal
 
 /**
  * An applicative that also allows you to raise and or handle an error value.
@@ -35,15 +37,15 @@ trait ApplicativeError[F[_], E] extends Applicative[F] {
   def handleError[A](fa: F[A])(f: E => A): F[A] = handleErrorWith(fa)(f andThen pure)
 
   /**
-   * Handle errors by turning them into [[cats.data.Xor.Left]] values.
+   * Handle errors by turning them into [[cats.data.Xor]] values.
    *
-   * If there is no error, then an [[cats.data.Xor.Right]] value will be returned instead.
+   * If there is no error, then an `scala.util.Right` value will be returned instead.
    *
    * All non-fatal errors should be handled by this method.
    */
-  def attempt[A](fa: F[A]): F[E Xor A] = handleErrorWith(
-    map(fa)(Xor.right[E, A])
-  )(e => pure(Xor.left(e)))
+  def attempt[A](fa: F[A]): F[Xor[E, A]] = handleErrorWith(
+    map(fa)(Xor.Right(_): Xor[E, A])
+  )(e => pure(Xor.Left(e)))
 
   /**
    * Similar to [[attempt]], but wraps the result in a [[cats.data.XorT]] for
@@ -74,6 +76,34 @@ trait ApplicativeError[F[_], E] extends Applicative[F] {
   def recoverWith[A](fa: F[A])(pf: PartialFunction[E, F[A]]): F[A] =
     handleErrorWith(fa)(e =>
       pf applyOrElse(e, raiseError))
+  /**
+   * Often E is Throwable. Here we try to call pure or catch
+   * and raise.
+   */
+  def catchNonFatal[A](a: => A)(implicit ev: Throwable <:< E): F[A] =
+    try pure(a)
+    catch {
+      case NonFatal(e) => raiseError(e)
+    }
+
+  /**
+   * Often E is Throwable. Here we try to call pure or catch
+   * and raise
+   */
+  def catchNonFatalEval[A](a: Eval[A])(implicit ev: Throwable <:< E): F[A] =
+    try pure(a.value)
+    catch {
+      case NonFatal(e) => raiseError(e)
+    }
+
+  /**
+   * If the error type is Throwable, we can convert from a scala.util.Try
+   */
+  def fromTry[A](t: Try[A])(implicit ev: Throwable <:< E): F[A] =
+    t match {
+      case Success(a) => pure(a)
+      case Failure(e) => raiseError(e)
+    }
 }
 
 object ApplicativeError {

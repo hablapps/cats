@@ -1,5 +1,4 @@
 import scala.annotation.tailrec
-import cats.data.Xor
 
 /**
  * Symbolic aliases for various types are defined here.
@@ -28,15 +27,15 @@ package object cats {
  * encodes pure unary function application.
  */
   type Id[A] = A
-  implicit val catsInstancesForId: Bimonad[Id] with MonadRec[Id] with Traverse[Id] =
-    new Bimonad[Id] with MonadRec[Id] with Traverse[Id] {
+  implicit val catsInstancesForId: Bimonad[Id] with Monad[Id] with Traverse[Id] with RecursiveTailRecM[Id] =
+    new Bimonad[Id] with Monad[Id] with Traverse[Id] with RecursiveTailRecM[Id] {
       def pure[A](a: A): A = a
       def extract[A](a: A): A = a
       def flatMap[A, B](a: A)(f: A => B): B = f(a)
       def coflatMap[A, B](a: A)(f: A => B): B = f(a)
-      @tailrec def tailRecM[A, B](a: A)(f: A => A Xor B): B = f(a) match {
-        case Xor.Left(a1) => tailRecM(a1)(f)
-        case Xor.Right(b) => b
+      @tailrec def tailRecM[A, B](a: A)(f: A => Either[A, B]): B = f(a) match {
+        case Left(a1) => tailRecM(a1)(f)
+        case Right(b) => b
       }
       override def map[A, B](fa: A)(f: A => B): B = f(fa)
       override def ap[A, B](ff: A => B)(fa: A): B = ff(fa)
