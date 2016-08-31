@@ -50,6 +50,11 @@ abstract class Is[A, B] extends Serializable {
   @inline final def lift[F[_]]: F[A] Is F[B] =
     substitute[λ[α => F[A] Is F[α]]](Is.refl)
 
+  @inline final def lift2[F[_, _], A2, B2](is2: A2 Is B2): F[A, A2] Is F[B, B2] =
+    is2.substitute[λ[α => F[A, A2] Is F[B, α]]](
+      substitute[λ[α => F[A, A2] Is F[α, A2]]](
+        Is.refl))
+
   /**
    * Substitution on identity brings about a direct coercion function of the
    * same form that `=:=` provides.
@@ -97,4 +102,3 @@ object Is {
     reflAny.asInstanceOf[A Is B]
 
 }
-
